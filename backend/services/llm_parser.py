@@ -12,7 +12,6 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Initialize new-style Gemini client
 _api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=_api_key) if _api_key else None
 
@@ -20,10 +19,6 @@ MAX_RETRIES = 3
 
 
 def parse_invoice_with_llm(ocr_text: str) -> ExtractedInvoice:
-    """
-    OCR text -> Gemini -> JSON -> Pydantic validation
-    Retries up to MAX_RETRIES times if parsing fails.
-    """
     if client is None:
         logger.warning("No Gemini API key — returning empty invoice")
         return ExtractedInvoice()
@@ -36,7 +31,7 @@ def parse_invoice_with_llm(ocr_text: str) -> ExtractedInvoice:
             logger.info(f"Gemini attempt {attempt}/{MAX_RETRIES}")
 
             response = client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.0-flash",
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     temperature=0,
@@ -46,7 +41,6 @@ def parse_invoice_with_llm(ocr_text: str) -> ExtractedInvoice:
 
             raw_text = response.text.strip()
 
-            # Strip markdown fences if Gemini adds them
             if raw_text.startswith("```"):
                 raw_text = raw_text.split("```")[1]
                 if raw_text.startswith("json"):
@@ -58,9 +52,15 @@ def parse_invoice_with_llm(ocr_text: str) -> ExtractedInvoice:
             return invoice
 
         except Exception as e:
+            error_str = str(e)
             last_error = e
+
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                logger.error("Gemini quota exceeded — stopping retries")
+                break
+
             logger.warning(f"Attempt {attempt} failed: {e}")
-            user_prompt = build_retry_prompt(ocr_text, str(e))
+            user_prompt = build_retry_prompt(ocr_text, error_str)
 
     logger.error(f"All retries failed: {last_error}")
     return ExtractedInvoice()
@@ -82,7 +82,7 @@ def build_prompt(ocr_text: str) -> str:
         "Rules:\n"
         "- Convert all dates to YYYY-MM-DD\n"
         "- Amounts as plain numbers: 1500.00 not $1,500.00\n"
-        "- Map symbols: $ -> USD, € -> EUR, £ -> GBP, Rs/₹ -> INR\n"
+        "- Map symbols: $ -> USD, EUR -> EUR, GBP -> GBP, Rs/INR -> INR\n"
         "- Net 30 / Net 60: due_date = invoice_date + N days\n"
         "- OCR noise: l may mean I, O may mean 0 in numbers\n"
         "- Missing fields: null, never fabricate\n"

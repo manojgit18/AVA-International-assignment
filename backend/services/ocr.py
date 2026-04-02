@@ -8,6 +8,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Add this line — tells Python exactly where Tesseract is
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 def extract_text_from_file(file_bytes: bytes, file_type: str) -> str:
     """
     Main entry point. Routes to correct extractor based on file type.

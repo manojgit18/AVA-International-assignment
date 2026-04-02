@@ -1,6 +1,6 @@
 # backend/api/upload.py
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from services.supabase_client import get_supabase
 from services.ocr import extract_text_from_file
 from services.llm_parser import parse_invoice_with_llm
@@ -17,26 +17,14 @@ MAX_FILE_SIZE  = 10 * 1024 * 1024  # 10 MB
 @router.post("/", response_model=UploadResponse)
 async def upload_invoice(
     file: UploadFile = File(...),
-    user_id: str = "demo-user"   # replace with real auth later
+    user_id: str = "demo-user"
 ):
-    """
-    Full pipeline:
-    1. Validate file
-    2. Store in Supabase Storage
-    3. Save file record to DB
-    4. Run OCR
-    5. Run LLM parsing
-    6. Validate output
-    7. Save extracted data to DB
-    8. Return result
-    """
-    # ── Step 1: Validate file type ────────────────────────────
+    # ── Step 1: Validate file ─────────────────────────────────
     ext = file.filename.rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_TYPES:
-        raise HTTPException(400, f"Unsupported type: {ext}. Use PDF, JPG, or PNG.")
+        raise HTTPException(400, f"Unsupported type: {ext}")
 
     file_bytes = await file.read()
-
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(400, "File too large. Max 10MB.")
 
@@ -56,7 +44,7 @@ async def upload_invoice(
     except Exception as e:
         raise HTTPException(500, f"Storage upload failed: {e}")
 
-    # ── Step 3: Save file record to DB ───────────────────────
+    # ── Step 3: Save file record ──────────────────────────────
     file_record = supabase.table("files_metadata").insert({
         "user_id":         user_id,
         "file_name":       file.filename,
@@ -70,9 +58,16 @@ async def upload_invoice(
     # ── Step 4: OCR ───────────────────────────────────────────
     try:
         raw_text = extract_text_from_file(file_bytes, ext)
+
+        # Debug: print OCR output to terminal
+        print("=== OCR OUTPUT ===")
+        print(raw_text)
+        print("==================")
+
         supabase.table("files_metadata").update(
             {"status": "llm_parsing"}
         ).eq("id", file_id).execute()
+
     except Exception as e:
         supabase.table("files_metadata").update(
             {"status": "failed"}
@@ -82,10 +77,10 @@ async def upload_invoice(
     # ── Step 5: LLM Parsing ───────────────────────────────────
     extracted = parse_invoice_with_llm(raw_text)
 
-    # ── Step 6: Validate + clean ──────────────────────────────
+    # ── Step 6: Validate ──────────────────────────────────────
     extracted = validate_and_clean(extracted)
 
-    # ── Step 7: Save to invoices + extracted_data ────────────
+    # ── Step 7: Save to DB ────────────────────────────────────
     invoice_record = supabase.table("invoices").insert({
         "user_id":        user_id,
         "file_id":        file_id,
@@ -95,17 +90,17 @@ async def upload_invoice(
     invoice_id = invoice_record.data[0]["id"]
 
     supabase.table("extracted_data").insert({
-        "invoice_id":       invoice_id,
-        "invoice_date":     extracted.invoice_date,
-        "due_date":         extracted.due_date,
-        "total_amount":     extracted.total_amount,
-        "currency":         extracted.currency,
-        "line_items":       [i.dict() for i in extracted.line_items],
+        "invoice_id":        invoice_id,
+        "invoice_date":      extracted.invoice_date,
+        "due_date":          extracted.due_date,
+        "total_amount":      extracted.total_amount,
+        "currency":          extracted.currency,
+        "line_items":        [i.dict() for i in extracted.line_items],
         "confidence_scores": extracted.confidence_scores,
-        "raw_ocr_text":     raw_text,
+        "raw_ocr_text":      raw_text,
     }).execute()
 
-    # ── Step 8: Mark complete + return ───────────────────────
+    # ── Step 8: Mark complete ─────────────────────────────────
     supabase.table("files_metadata").update(
         {"status": "completed"}
     ).eq("id", file_id).execute()
