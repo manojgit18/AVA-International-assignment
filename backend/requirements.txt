@@ -8,4 +8,3 @@ python-multipart==0.0.9
 pillow==10.0.1
 pytesseract==0.3.10
 pdf2image==1.17.0
-PYTHON_VERSION=3.11.9
