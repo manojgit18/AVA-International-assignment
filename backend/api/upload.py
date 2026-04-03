@@ -1,5 +1,5 @@
 # backend/api/upload.py
-
+from services.format_detector import generate_fingerprint, find_similar_format, is_duplicate_invoice
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from services.supabase_client import get_supabase
 from services.ocr import extract_text_from_file

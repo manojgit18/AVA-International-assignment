@@ -1,5 +1,3 @@
-# backend/services/llm_parser.py
-
 import json
 import os
 import logging
@@ -59,6 +57,10 @@ def parse_invoice_with_llm(ocr_text: str) -> ExtractedInvoice:
                 logger.error("Gemini quota exceeded — stopping retries")
                 break
 
+            if "401" in error_str or "API_KEY_INVALID" in error_str:
+                logger.error("Gemini invalid key — stopping retries")
+                break
+
             logger.warning(f"Attempt {attempt} failed: {e}")
             user_prompt = build_retry_prompt(ocr_text, error_str)
 
@@ -68,8 +70,7 @@ def parse_invoice_with_llm(ocr_text: str) -> ExtractedInvoice:
 
 def build_prompt(ocr_text: str) -> str:
     return (
-        "You are an expert invoice data extraction assistant.\n"
-        "Extract invoice fields from the OCR text below.\n\n"
+        "Extract invoice data from the OCR text below.\n\n"
         "Return a JSON object with EXACTLY these fields:\n"
         "- invoice_number: string or null\n"
         "- vendor_name: string or null\n"
@@ -82,7 +83,7 @@ def build_prompt(ocr_text: str) -> str:
         "Rules:\n"
         "- Convert all dates to YYYY-MM-DD\n"
         "- Amounts as plain numbers: 1500.00 not $1,500.00\n"
-        "- Map symbols: $ -> USD, EUR -> EUR, GBP -> GBP, Rs/INR -> INR\n"
+        "- Map symbols: $ -> USD, € -> EUR, £ -> GBP, Rs/₹ -> INR\n"
         "- Net 30 / Net 60: due_date = invoice_date + N days\n"
         "- OCR noise: l may mean I, O may mean 0 in numbers\n"
         "- Missing fields: null, never fabricate\n"
@@ -101,3 +102,43 @@ def build_retry_prompt(ocr_text: str, error: str) -> str:
         "No explanation. No markdown. JSON only.\n\n"
         f"OCR TEXT:\n{ocr_text}"
     )
+# ── Step 5: LLM Parsing ───────────────────────────────────
+    extracted = parse_invoice_with_llm(raw_text)
+
+    # ── Step 6: Validate ──────────────────────────────────────
+    extracted = validate_and_clean(extracted)
+
+    # ── Step 6b: Format detection ─────────────────────────────
+    fingerprint = generate_fingerprint(raw_text)
+    similar = find_similar_format(fingerprint, user_id)
+    if similar:
+        logger.info(f"Known format from vendor: {similar.get('vendor_name')}")
+
+    # ── Step 6c: Duplicate detection ──────────────────────────
+    duplicate = is_duplicate_invoice(
+        extracted.invoice_number,
+        extracted.vendor_name,
+        user_id
+    )
+
+    # ── Step 7: Save to DB ────────────────────────────────────
+    invoice_record = supabase.table("invoices").insert({
+        "user_id":            user_id,
+        "file_id":            file_id,
+        "invoice_number":     extracted.invoice_number,
+        "vendor_name":        extracted.vendor_name,
+        "format_fingerprint": fingerprint,
+        "is_duplicate":       duplicate,
+    }).execute()
+    invoice_id = invoice_record.data[0]["id"]
+
+    supabase.table("extracted_data").insert({
+        "invoice_id":         invoice_id,
+        "invoice_date":       extracted.invoice_date,
+        "due_date":           extracted.due_date,
+        "total_amount":       extracted.total_amount,
+        "currency":           extracted.currency,
+        "line_items":         [i.dict() for i in extracted.line_items],
+        "confidence_scores":  extracted.confidence_scores,
+        "raw_ocr_text":       raw_text,
+    }).execute()
