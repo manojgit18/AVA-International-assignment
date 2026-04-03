@@ -44,7 +44,7 @@ export default function App() {
           display: "flex", alignItems: "center", justifyContent: "center",
           color: "white", fontWeight: 700, fontSize: 18,
         }}>
-          AI
+          Invoicer
         </div>
 
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
