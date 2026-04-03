@@ -5,12 +5,16 @@ import axios from "axios"
 const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
 
 export default function Upload() {
-  const [file, setFile]         = useState(null)
-  const [loading, setLoading]   = useState(false)
-  const [result, setResult]     = useState(null)
-  const [error, setError]       = useState(null)
-  const [dragOver, setDragOver] = useState(false)
+  const [file, setFile]               = useState(null)
+  const [loading, setLoading]         = useState(false)
+  const [result, setResult]           = useState(null)
+  const [error, setError]             = useState(null)
+  const [dragOver, setDragOver]       = useState(false)
+  const [batchFiles, setBatchFiles]   = useState([])
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [batchResults, setBatchResults] = useState(null)
 
+  // ── Single upload ─────────────────────────────────────────
   async function handleUpload() {
     if (!file) return alert("Please select a file first")
     setLoading(true)
@@ -32,6 +36,29 @@ export default function Upload() {
     }
   }
 
+  // ── Batch upload ──────────────────────────────────────────
+  async function handleBatchUpload() {
+    if (!batchFiles.length) return alert("Please select files first")
+    setBatchLoading(true)
+    setBatchResults(null)
+    setError(null)
+
+    const form = new FormData()
+    batchFiles.forEach(f => form.append("files", f))
+
+    try {
+      const res = await axios.post(
+        `${API}/api/upload/batch?user_id=demo-user`, form
+      )
+      setBatchResults(res.data)
+    } catch (e) {
+      setError(e.response?.data?.detail || "Batch upload failed")
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  // ── Drag and drop ─────────────────────────────────────────
   function handleDrop(e) {
     e.preventDefault()
     setDragOver(false)
@@ -39,18 +66,20 @@ export default function Upload() {
     if (dropped) setFile(dropped)
   }
 
-  // FIX 2: changed result.extracted → result?.extracted_data
+  // ── Fields for result display ─────────────────────────────
   const fields = [
-    ["Invoice Number", result?.extracted_data?.invoice_number],
-    ["Vendor Name",    result?.extracted_data?.vendor_name],
-    ["Invoice Date",   result?.extracted_data?.invoice_date],
-    ["Due Date",       result?.extracted_data?.due_date],
-    ["Total Amount",   result?.extracted_data?.total_amount],
-    ["Currency",       result?.extracted_data?.currency],
+    ["Invoice Number", result?.extracted?.invoice_number],
+    ["Vendor Name",    result?.extracted?.vendor_name],
+    ["Invoice Date",   result?.extracted?.invoice_date],
+    ["Due Date",       result?.extracted?.due_date],
+    ["Total Amount",   result?.extracted?.total_amount],
+    ["Currency",       result?.extracted?.currency],
   ]
 
   return (
     <div>
+
+      {/* ── Single Upload Section ───────────────────────── */}
       <h2 style={{ marginTop: 0 }}>Upload Invoice</h2>
       <p style={{ color: "#6b7280", marginTop: -8 }}>
         Supports JPG, PNG, PDF — max 10MB
@@ -110,7 +139,7 @@ export default function Upload() {
         {loading ? "⏳ Processing..." : "Extract Invoice Data"}
       </button>
 
-      {/* Error */}
+      {/* Error message */}
       {error && (
         <div style={{
           marginTop: 16, padding: 14,
@@ -121,12 +150,12 @@ export default function Upload() {
         </div>
       )}
 
-      {/* FIX 1: single result block — removed duplicate nested block */}
+      {/* Single upload result */}
       {result && (
         <div style={{ marginTop: 28 }}>
 
           {/* Status banner */}
-          {result?.extracted_data?.vendor_name || result?.extracted_data?.total_amount ? (
+          {result?.extracted?.vendor_name || result?.extracted?.total_amount ? (
             <div style={{
               padding: "12px 16px", background: "#f0fdf4",
               border: "1px solid #86efac", borderRadius: 8,
@@ -173,16 +202,21 @@ export default function Upload() {
           </div>
 
           {/* Confidence scores */}
-          {result?.extracted_data?.confidence_scores &&
-            Object.keys(result.extracted_data.confidence_scores).length > 0 && (
+          {result?.extracted?.confidence_scores &&
+            Object.keys(result.extracted.confidence_scores).length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <h4 style={{ marginBottom: 10 }}>Confidence Scores</h4>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {Object.entries(result.extracted_data.confidence_scores).map(([field, score]) => (
+                {Object.entries(result.extracted.confidence_scores).map(
+                  ([field, score]) => (
                   <div key={field} style={{
                     padding: "4px 12px",
-                    background: score >= 0.8 ? "#dcfce7" : score >= 0.5 ? "#fef9c3" : "#fee2e2",
-                    color: score >= 0.8 ? "#166534" : score >= 0.5 ? "#854d0e" : "#991b1b",
+                    background: score >= 0.8
+                      ? "#dcfce7" : score >= 0.5
+                      ? "#fef9c3" : "#fee2e2",
+                    color: score >= 0.8
+                      ? "#166534" : score >= 0.5
+                      ? "#854d0e" : "#991b1b",
                     borderRadius: 20, fontSize: 13, fontWeight: 500,
                   }}>
                     {field}: {(score * 100).toFixed(0)}%
@@ -192,23 +226,27 @@ export default function Upload() {
             </div>
           )}
 
-          {/* Line items */}
-          {result?.extracted_data?.line_items?.length > 0 && (
+          {/* Line items table */}
+          {result?.extracted?.line_items?.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <h4 style={{ marginBottom: 10 }}>Line Items</h4>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <table style={{
+                width: "100%", borderCollapse: "collapse", fontSize: 14
+              }}>
                 <thead>
                   <tr style={{ background: "#f3f4f6" }}>
                     {["Description", "Qty", "Unit Price", "Total"].map(h => (
                       <th key={h} style={{
                         padding: "10px 14px", textAlign: "left",
                         color: "#374151", fontWeight: 600,
-                      }}>{h}</th>
+                      }}>
+                        {h}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {result.extracted_data.line_items.map((item, i) => (
+                  {result.extracted.line_items.map((item, i) => (
                     <tr key={i} style={{
                       borderTop: "1px solid #e5e7eb",
                       background: i % 2 === 0 ? "white" : "#fafafa",
@@ -216,7 +254,9 @@ export default function Upload() {
                       <td style={{ padding: "10px 14px" }}>{item.description}</td>
                       <td style={{ padding: "10px 14px" }}>{item.quantity}</td>
                       <td style={{ padding: "10px 14px" }}>{item.unit_price}</td>
-                      <td style={{ padding: "10px 14px", fontWeight: 600 }}>{item.total}</td>
+                      <td style={{ padding: "10px 14px", fontWeight: 600 }}>
+                        {item.total}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -224,7 +264,7 @@ export default function Upload() {
             </div>
           )}
 
-          {/* File info */}
+          {/* File info footer */}
           <div style={{
             padding: "10px 14px", background: "#f3f4f6",
             borderRadius: 8, fontSize: 13, color: "#6b7280",
@@ -232,19 +272,14 @@ export default function Upload() {
             File ID: {result.file_id} | Invoice ID: {result.invoice_id} | Status: {result.status}
           </div>
 
-          {/* FIX 3: refresh invoices page after successful upload */}
+          {/* Reset button */}
           <button
             onClick={() => window.location.reload()}
             style={{
-              marginTop: 16,
-              padding: "8px 20px",
-              background: "#f3f4f6",
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontSize: 14,
-              color: "#374151",
-              fontWeight: 500,
+              marginTop: 16, padding: "8px 20px",
+              background: "#f3f4f6", border: "1px solid #e5e7eb",
+              borderRadius: 8, cursor: "pointer",
+              fontSize: 14, color: "#374151", fontWeight: 500,
             }}
           >
             ↺ Upload another invoice
@@ -252,6 +287,125 @@ export default function Upload() {
 
         </div>
       )}
+
+      {/* ── Batch Upload Section ────────────────────────── */}
+      <div style={{
+        marginTop: 48,
+        paddingTop: 32,
+        borderTop: "2px dashed #e5e7eb",
+      }}>
+        <h3 style={{ marginTop: 0 }}>Batch Upload</h3>
+        <p style={{ color: "#6b7280", marginTop: -8 }}>
+          Upload multiple invoices at once — max 10 files
+        </p>
+
+        <input
+          type="file"
+          accept=".jpg,.jpeg,.png,.pdf"
+          multiple
+          onChange={e => setBatchFiles(Array.from(e.target.files))}
+          style={{ marginBottom: 12, display: "block" }}
+        />
+
+        {batchFiles.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <p style={{ color: "#4F46E5", fontWeight: 500, margin: "0 0 6px" }}>
+              {batchFiles.length} file(s) selected:
+            </p>
+            {batchFiles.map((f, i) => (
+              <div key={i} style={{
+                fontSize: 13, color: "#6b7280", marginBottom: 2
+              }}>
+                • {f.name} ({(f.size / 1024).toFixed(1)} KB)
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button
+          onClick={handleBatchUpload}
+          disabled={batchLoading || !batchFiles.length}
+          style={{
+            padding: "11px 32px",
+            background: batchLoading || !batchFiles.length
+              ? "#9ca3af" : "#7C3AED",
+            color: "white", border: "none", borderRadius: 8,
+            cursor: batchLoading || !batchFiles.length
+              ? "not-allowed" : "pointer",
+            fontWeight: 600, fontSize: 15,
+          }}
+        >
+          {batchLoading ? "⏳ Processing batch..." : "Upload Batch"}
+        </button>
+
+        {/* Batch results */}
+        {batchResults && (
+          <div style={{ marginTop: 20 }}>
+
+            {/* Summary banner */}
+            <div style={{
+              padding: "12px 16px", borderRadius: 8, marginBottom: 16,
+              background: "#f0fdf4", border: "1px solid #86efac",
+              display: "flex", alignItems: "center", gap: 16,
+            }}>
+              <span style={{ fontWeight: 600, color: "#16a34a" }}>
+                ✅ {batchResults.successful}/{batchResults.total} processed
+              </span>
+              {batchResults.failed > 0 && (
+                <span style={{ color: "#dc2626", fontWeight: 500 }}>
+                  ❌ {batchResults.failed} failed
+                </span>
+              )}
+            </div>
+
+            {/* Individual results */}
+            {batchResults.results.map((r, i) => (
+              <div key={i} style={{
+                padding: "14px 16px", marginBottom: 8,
+                border: "1px solid #e5e7eb", borderRadius: 8,
+                background: r.status === "completed" ? "#f9fafb" : "#fef2f2",
+                display: "flex", justifyContent: "space-between",
+                alignItems: "center", gap: 12,
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    {r.file_name}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
+                    {r.status === "completed"
+                      ? `${r.extracted?.vendor_name || "Unknown vendor"} — ${r.extracted?.currency || ""} ${r.extracted?.total_amount || "—"}`
+                      : `Error: ${r.error}`
+                    }
+                  </div>
+                </div>
+                <span style={{
+                  padding: "3px 10px", borderRadius: 20,
+                  fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
+                  background: r.status === "completed" ? "#dcfce7" : "#fee2e2",
+                  color: r.status === "completed" ? "#166534" : "#991b1b",
+                }}>
+                  {r.status.toUpperCase()}
+                </span>
+              </div>
+            ))}
+
+            {/* Refresh after batch */}
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                marginTop: 12, padding: "8px 20px",
+                background: "#f3f4f6", border: "1px solid #e5e7eb",
+                borderRadius: 8, cursor: "pointer",
+                fontSize: 14, color: "#374151", fontWeight: 500,
+              }}
+            >
+              ↺ Upload more invoices
+            </button>
+
+          </div>
+        )}
+      </div>
+
     </div>
   )
 }

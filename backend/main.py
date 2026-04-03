@@ -1,5 +1,4 @@
 # backend/main.py
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api import upload, invoices, analytics
@@ -11,7 +10,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://your-app.vercel.app",  # update after Vercel deploy
+        "*"  # temporary — remove after adding Vercel URL
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

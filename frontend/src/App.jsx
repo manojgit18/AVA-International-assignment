@@ -3,9 +3,11 @@ import { useState } from "react"
 import Upload from "./pages/Upload.jsx"
 import Invoices from "./pages/Invoices.jsx"
 import Analytics from "./pages/Analytics.jsx"
+import InvoiceDetail from "./pages/InvoiceDetail.jsx"
 
 export default function App() {
   const [page, setPage] = useState("upload")
+  const [selectedInvoice, setSelectedInvoice] = useState(null)
 
   const navStyle = (p) => ({
     padding: "8px 20px",
@@ -44,10 +46,13 @@ export default function App() {
         }}>
           AI
         </div>
+
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
           Invoice Extractor AI
         </h1>
+
         <div style={{ flex: 1 }} />
+
         {["upload", "invoices", "analytics"].map(p => (
           <button key={p} onClick={() => setPage(p)} style={navStyle(p)}>
             {p}
@@ -56,9 +61,25 @@ export default function App() {
       </div>
 
       {/* Page content */}
-      {page === "upload"    && <Upload />}
-      {page === "invoices"  && <Invoices />}
+      {page === "upload" && <Upload />}
+
+      {page === "invoices" && (
+        <Invoices
+          onSelectInvoice={(inv) => {
+            setSelectedInvoice(inv)
+            setPage("detail")
+          }}
+        />
+      )}
+
       {page === "analytics" && <Analytics />}
+
+      {page === "detail" && (
+        <InvoiceDetail
+          invoice={selectedInvoice}
+          onBack={() => setPage("invoices")}
+        />
+      )}
     </div>
   )
 }
